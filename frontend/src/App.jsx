@@ -1,6 +1,6 @@
 import * as id3 from 'id3js';
 import { ToastContainer } from 'react-toastify';
-import { createRef, useEffect, useReducer, useRef } from 'react';
+import { createRef, useEffect, useReducer, useRef, useState } from 'react';
 import AudioTrack from './components/Jukebox/AudioTrack.jsx';
 import Dropzone from './components/Dropzone.jsx';
 import Header from './components/Header.jsx';
@@ -10,6 +10,7 @@ import ModalMetaTag from './components/Jukebox/ModalMetaTag.jsx';
 import { initialSelectedAudio } from './constants.js';
 import audioReducer from './reducers/audioReducer.jsx';
 import { generateKey } from './utility.js';
+import useMixTransport from './hooks/useMixTransport.js';
 
 function App() {
   const [state, dispatch] = useReducer(audioReducer, {
@@ -20,6 +21,8 @@ function App() {
 
   const audioRefs = useRef([]);
   const editMetaTagModalRef = useRef();
+  const transport = useMixTransport();
+  const [transportPosition, setTransportPosition] = useState(0);
 
   audioRefs.current = [
     ...state.audios.map((_, i) => audioRefs.current[i] || createRef()),
@@ -54,6 +57,23 @@ function App() {
     }
   }, [state.audios, state.isPlaying]);
 
+  useEffect(() => {
+    if (!state.isPlaying) return undefined;
+
+    const timer = window.setInterval(() => {
+      const position = transport.getPosition();
+      setTransportPosition(position);
+
+      const duration = transport.getDuration();
+      if (duration > 0 && position >= duration) {
+        dispatch({ type: 'audio_paused' });
+        setTransportPosition(0);
+      }
+    }, 100);
+
+    return () => window.clearInterval(timer);
+  }, [state.isPlaying, transport]);
+
   const handleDropFiles = async acceptedFiles => {
     const filesWithMetaData = await Promise.all(
       acceptedFiles.map(async file => {
@@ -70,45 +90,23 @@ function App() {
   };
 
   const handleClearFiles = () => {
+    transport.reset();
+    setTransportPosition(0);
     dispatch({ type: 'deleted_audios' });
   };
 
   const handlePlayMix = async () => {
-    const elements = audioRefs.current
-      .map(audioRef => audioRef.current)
-      .filter(Boolean);
-
-    if (!elements.length) return;
-
-    const primary = elements[0];
-    const transportTime = Number.isFinite(primary.currentTime)
-      ? primary.currentTime
-      : 0;
-
-    // Keep every layer on the same transport position before playback starts.
-    // This reduces the drift caused by starting each HTMLAudioElement at a
-    // different point in the event loop. A Web Audio clock will replace this
-    // transport in the next mixer phase.
-    elements.slice(1).forEach(element => {
-      if (Math.abs(element.currentTime - transportTime) > 0.025) {
-        element.currentTime = transportTime;
-      }
-    });
-
     try {
-      await Promise.all(elements.map(element => element.play()));
-      dispatch({ type: 'audio_resumed' });
+      const started = await transport.play(state.audios);
+      if (started) dispatch({ type: 'audio_resumed' });
     } catch (error) {
-      elements.forEach(element => element.pause());
       console.error('Unable to start synchronized playback:', error);
     }
   };
 
   const handlePauseMix = () => {
+    setTransportPosition(transport.pause());
     dispatch({ type: 'audio_paused' });
-    audioRefs.current.forEach(audioRef => {
-      audioRef.current?.pause();
-    });
   };
 
   const handleEditMetaTags = audioId => {
@@ -152,6 +150,7 @@ function App() {
                     key={audio.id}
                     ref={audioRefs.current[index]}
                     audio={audio}
+                    transportPosition={transportPosition}
                     onEditMetaTags={() => handleEditMetaTags(audio.id)}
                   />
                 );
