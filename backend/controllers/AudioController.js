@@ -39,8 +39,9 @@ exports.downloadMix = (req, res) => {
       tempFiles.push(tempFile);
     });
 
-    // Define the output file path
-    const outputPath = './output.mp3';
+    // Use an isolated output file per request so concurrent mixes cannot
+    // overwrite one another.
+    const outputPath = tmp.tmpNameSync({ postfix: '.mp3' });
 
     // Perform audio mixing using ffmpeg
     const command = ffmpeg();
@@ -56,11 +57,22 @@ exports.downloadMix = (req, res) => {
       ])
       .map('[a]')
       .on('end', () => {
-        tempFiles.forEach(tempFile => fs.unlinkSync(tempFile));
-        return res.status(201).download(outputPath);
+        tempFiles.forEach(tempFile => {
+          if (fs.existsSync(tempFile)) fs.unlinkSync(tempFile);
+        });
+
+        return res.status(201).download(outputPath, 'mix.mp3', err => {
+          if (fs.existsSync(outputPath)) fs.unlinkSync(outputPath);
+          if (err && !res.headersSent) {
+            res.status(500).json({ error: 'Unable to download mixed audio.' });
+          }
+        });
       })
       .on('error', err => {
-        tempFiles.forEach(tempFile => fs.unlinkSync(tempFile));
+        tempFiles.forEach(tempFile => {
+          if (fs.existsSync(tempFile)) fs.unlinkSync(tempFile);
+        });
+        if (fs.existsSync(outputPath)) fs.unlinkSync(outputPath);
         return res.status(500).json({ error: 'Internal server error.' });
       })
       .save(outputPath);
