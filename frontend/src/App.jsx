@@ -73,19 +73,41 @@ function App() {
     dispatch({ type: 'deleted_audios' });
   };
 
-  const handlePlayMix = () => {
-    if (state.audios.length) {
+  const handlePlayMix = async () => {
+    const elements = audioRefs.current
+      .map(audioRef => audioRef.current)
+      .filter(Boolean);
+
+    if (!elements.length) return;
+
+    const primary = elements[0];
+    const transportTime = Number.isFinite(primary.currentTime)
+      ? primary.currentTime
+      : 0;
+
+    // Keep every layer on the same transport position before playback starts.
+    // This reduces the drift caused by starting each HTMLAudioElement at a
+    // different point in the event loop. A Web Audio clock will replace this
+    // transport in the next mixer phase.
+    elements.slice(1).forEach(element => {
+      if (Math.abs(element.currentTime - transportTime) > 0.025) {
+        element.currentTime = transportTime;
+      }
+    });
+
+    try {
+      await Promise.all(elements.map(element => element.play()));
       dispatch({ type: 'audio_resumed' });
-      audioRefs.current.forEach(audioRef => {
-        audioRef.current.play();
-      });
+    } catch (error) {
+      elements.forEach(element => element.pause());
+      console.error('Unable to start synchronized playback:', error);
     }
   };
 
   const handlePauseMix = () => {
     dispatch({ type: 'audio_paused' });
     audioRefs.current.forEach(audioRef => {
-      audioRef.current.pause();
+      audioRef.current?.pause();
     });
   };
 
