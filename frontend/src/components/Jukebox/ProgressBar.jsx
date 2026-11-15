@@ -1,62 +1,67 @@
 import PropTypes from 'prop-types';
-import { forwardRef, useCallback, useEffect, useState } from 'react';
+import { forwardRef, useEffect, useMemo, useState } from 'react';
 
 const calculateTime = secs => {
-  const minutes = Math.floor(secs / 60);
-  const seconds = Math.floor(secs % 60);
+  const safeSeconds = Number.isFinite(secs) ? secs : 0;
+  const minutes = Math.floor(safeSeconds / 60);
+  const seconds = Math.floor(safeSeconds % 60);
   const returnedSeconds = seconds < 10 ? `0${seconds}` : `${seconds}`;
   return `${minutes}:${returnedSeconds}`;
 };
 
-const ProgressBar = forwardRef(function ProgressBar({ audio }, ref) {
-  const [duration, setDuration] = useState('00:00');
-  const [currentProgress, setCurrentProgress] = useState(0);
-  const audioUrl = URL.createObjectURL(audio);
-  const formattedDuration = calculateTime(duration);
+const ProgressBar = forwardRef(function ProgressBar(
+  { audio, transportPosition = 0 },
+  ref
+) {
+  const [duration, setDuration] = useState(0);
+  const audioUrl = useMemo(() => URL.createObjectURL(audio), [audio]);
+  const currentProgress =
+    duration > 0
+      ? Math.min(100, (Math.min(transportPosition, duration) / duration) * 100)
+      : 0;
 
-  const handleDuration = useCallback(function handleDuration(audioElement) {
-    setDuration(audioElement.duration);
-  }, []);
-
-  const handleProgressBar = useCallback(
-    function handleProgressBar(audioElement) {
-      let currentTime = audioElement.currentTime;
-      const progress = duration > 0 ? (currentTime / duration) * 100 : 0;
-      setCurrentProgress(progress);
-    },
-    [duration]
-  );
+  useEffect(() => () => URL.revokeObjectURL(audioUrl), [audioUrl]);
 
   useEffect(() => {
-    const audioElementRef = ref.current;
-    const handleDurationFn = () => handleDuration(audioElementRef);
-    const handleProgressBarFn = () => handleProgressBar(audioElementRef);
+    const audioElement = ref.current;
+    if (!audioElement) return undefined;
 
-    audioElementRef.addEventListener('loadedmetadata', handleDurationFn);
-    audioElementRef.addEventListener('timeupdate', handleProgressBarFn);
+    const handleDuration = () => {
+      if (Number.isFinite(audioElement.duration)) {
+        setDuration(audioElement.duration);
+      }
+    };
+
+    audioElement.addEventListener('loadedmetadata', handleDuration);
+    if (audioElement.readyState >= 1) handleDuration();
 
     return () => {
-      audioElementRef.removeEventListener('loadedmetadata', handleDurationFn);
-      audioElementRef.removeEventListener('timeupdate', handleProgressBarFn);
+      audioElement.removeEventListener('loadedmetadata', handleDuration);
     };
-  }, [handleDuration, handleProgressBar, ref]);
+  }, [audioUrl, ref]);
 
   return (
     <>
-      <progress className="w-full flex-1" max="100" value={currentProgress} />
-      <audio ref={ref} preload="metadata" controls className="hidden">
+      <progress
+        className="w-full flex-1"
+        max="100"
+        value={currentProgress}
+        aria-label={`Mix position ${calculateTime(transportPosition)} of ${calculateTime(duration)}`}
+      />
+      <audio ref={ref} preload="metadata" className="hidden">
         <source src={audioUrl} type={audio.type} />
         Your browser does not support the audio element.
       </audio>
       <span className="text-xs sm:text-sm lg:text-lg flex-none shrink-0">
-        {formattedDuration}
+        {calculateTime(duration)}
       </span>
     </>
   );
 });
 
 ProgressBar.propTypes = {
-  audio: PropTypes.object,
+  audio: PropTypes.instanceOf(File),
+  transportPosition: PropTypes.number,
 };
 
 export default ProgressBar;
