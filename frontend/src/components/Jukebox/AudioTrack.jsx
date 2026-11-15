@@ -8,7 +8,7 @@ import { toast } from 'react-toastify';
 import { downloadFile, readFileFromHeaders } from '../../utility.js';
 
 const AudioTrack = forwardRef(function AudioTrack(
-  { audio, onEditMetaTags },
+  { audio, onEditMetaTags, transportPosition },
   ref
 ) {
   let controller = new AbortController();
@@ -92,7 +92,11 @@ const AudioTrack = forwardRef(function AudioTrack(
       </div>
       <div className="col-span-7 sm:col-span-7 lg:col-span-6">
         <div className="flex items-center gap-x-2 sm:gap-x-10 text-slate-500">
-          <ProgressBar ref={ref} audio={file} />
+          <ProgressBar
+            ref={ref}
+            audio={file}
+            transportPosition={transportPosition}
+          />
         </div>
       </div>
       <div className="col-span-1 sm:col-span-2 lg:col-span-2">
@@ -107,6 +111,7 @@ const AudioTrack = forwardRef(function AudioTrack(
 
 AudioTrack.propTypes = {
   onEditMetaTags: PropTypes.func,
+  transportPosition: PropTypes.number,
   audio: PropTypes.shape({
     id: PropTypes.string,
     file: PropTypes.instanceOf(File),
